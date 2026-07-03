@@ -113,6 +113,14 @@ def test_load_bed_df_reports_missing_requested_column(tmp_path):
         fm.load_bed_df(bed, {6})
 
 
+def test_load_bed_df_reports_inconsistent_column_count(tmp_path):
+    bed = tmp_path / "signal.bedGraph"
+    bed.write_text("chr1\t0\t10\t1\nchr1\t20\t30\n")
+
+    with pytest.raises(SystemExit, match=r"inconsistent column count at line 2"):
+        fm.load_bed_df(bed, {4})
+
+
 def test_series_action_binds_columns_to_most_recent_bed_in_command_order(monkeypatch):
     monkeypatch.setattr(
         sys,

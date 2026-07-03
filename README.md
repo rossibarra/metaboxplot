@@ -43,7 +43,7 @@ python flank_metaplot.py \
   --bed example_data/crossovers.bedGraph  --event 4 \
   --label "Diversity (pi)" --label "Crossovers (events/bp)" \
   --plot_color "#d62728" "#1f77b4" --legend-loc "upper left" \
-  --output example_data/example_pi_vs_crossovers.png
+  --output pi_vs_crossovers.png
 ```
 
 The example data is intentionally **variable-width** — recombination on the

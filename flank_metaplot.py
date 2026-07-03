@@ -205,19 +205,29 @@ def header_rows(path):
     return skip
 
 
-def first_data_column_count(path):
-    """Return the number of tab-separated columns in the first non-header row."""
+def validate_bed_columns(path):
+    """Return data column count, requiring every non-header row to match it."""
+    expected = None
     with open(path) as fh:
-        for line in fh:
+        for lineno, line in enumerate(fh, start=1):
             if is_header(line):
                 continue
-            return len(line.rstrip("\n").split("\t"))
-    raise SystemExit(f"Input bedGraph/BED has no data rows: {path}")
+            ncols = len(line.rstrip("\n").split("\t"))
+            if expected is None:
+                expected = ncols
+            elif ncols != expected:
+                raise SystemExit(
+                    f"Input bedGraph/BED has inconsistent column count at line {lineno}: "
+                    f"expected {expected}, found {ncols}: {path}"
+                )
+    if expected is None:
+        raise SystemExit(f"Input bedGraph/BED has no data rows: {path}")
+    return expected
 
 
 def load_bed_df(path, value_cols):
     needed = sorted({0, 1, 2, *(col - 1 for col in value_cols)})
-    ncols = first_data_column_count(path)
+    ncols = validate_bed_columns(path)
     missing = [col + 1 for col in needed if col >= ncols]
     if missing:
         vals = " ".join(str(col) for col in missing)
