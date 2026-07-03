@@ -89,6 +89,12 @@ def parse_args():
                    help="Box colour(s) per series, in command-line order. Default blue, red.")
     p.add_argument("--gene_color", default="black", metavar="COLOR",
                    help="Colour of the bottom gene-count bars (default black).")
+    p.add_argument("--legend-loc", default="upper right",
+                   choices=["best", "upper right", "upper left", "lower left",
+                            "lower right", "right", "center left", "center right",
+                            "lower center", "upper center", "center", "none"],
+                   help="Legend position (matplotlib loc), or 'none' to hide it "
+                        "(default 'upper right').")
     p.add_argument("--flank-bp", type=int, default=5000,
                    help="Number of bp upstream and downstream of each gene to profile "
                         "in the linear flanks (default 5000).")
@@ -433,8 +439,10 @@ def main():
            for t in tracks]
     leg += [Patch(facecolor="#ececec", edgecolor="0.6", label="gene body (TSS–TTS)"),
             Patch(facecolor="#c8c8c8", edgecolor="0.6", label="gene interior (not sampled)")]
-    ax.legend(handles=leg, loc="upper right", fontsize=7, framealpha=0.92,
-              title="boxes = mean ± 1 SE", title_fontsize=7)
+    if args.legend_loc != "none":
+        legend = ax.legend(handles=leg, loc=args.legend_loc, fontsize=7, framealpha=0.92,
+                           title="boxes = mean ± 1 SE", title_fontsize=7)
+        legend.get_frame().set_edgecolor("none")
 
     # ---------- bottom bar panel: genes contributing (first track) ----------
     t0 = tracks[0]

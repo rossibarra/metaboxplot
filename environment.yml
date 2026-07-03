@@ -1,8 +1,8 @@
-name: linked-selection
+name: metaboxplot
 channels:
   - conda-forge
-  - bioconda
 dependencies:
   - python>=3.11
   - numpy
-  - scikit-allel
+  - pandas
+  - matplotlib
