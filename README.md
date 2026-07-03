@@ -31,16 +31,16 @@ seconds):
 # Two value tracks: recombination rate + diversity (pi)
 python flank_metaplot.py \
   --gff example_data/genes.chr10_0-40Mb.gff3 \
-  --bed example_data/recomb_rate.500bp.bedGraph --value 4 \
-  --bed example_data/pi.500bp.bedGraph          --value 4 \
+  --bed example_data/recomb_rate.bedGraph --value 4 \
+  --bed example_data/pi.bedGraph          --value 4 \
   --label "Recombination (cM/Mb)" --label "Diversity (pi)" \
   --output recomb_vs_pi.png
 
 # One value + one event track: diversity (pi) vs crossovers
 python flank_metaplot.py \
   --gff example_data/genes.chr10_0-40Mb.gff3 \
-  --bed example_data/pi.500bp.bedGraph          --value 4 \
-  --bed example_data/crossovers.500bp.bedGraph  --event 4 \
+  --bed example_data/pi.bedGraph          --value 4 \
+  --bed example_data/crossovers.bedGraph  --event 4 \
   --label "Diversity (pi)" --label "Crossovers (events/bp)" \
   --plot_color "#d62728" "#1f77b4" --legend-loc "upper left" \
   --output example_data/example_pi_vs_crossovers.png

@@ -169,6 +169,23 @@ def parse_args():
     return p.parse_args()
 
 
+def validate_args(args):
+    if args.win <= 0:
+        raise SystemExit("--win must be greater than 0.")
+    if args.flank_bp <= 0:
+        raise SystemExit("--flank-bp must be greater than 0.")
+    if args.flank_bp < args.win:
+        raise SystemExit("--flank-bp must be at least --win so each flank has at least one bin.")
+    if args.body_bins <= 0:
+        raise SystemExit("--body-bins must be greater than 0.")
+    if args.box_halfwidth < 0:
+        raise SystemExit("--box-halfwidth must be 0 or greater.")
+    bad_box_dists = [d for d in args.box_dists if d < 0]
+    if bad_box_dists:
+        vals = " ".join(str(d) for d in bad_box_dists)
+        raise SystemExit(f"--box-dists must be 0 or greater; got: {vals}.")
+
+
 # ---------------------------------------------------------------- loading ----
 def is_header(line):
     s = line.lstrip()
@@ -188,8 +205,31 @@ def header_rows(path):
     return skip
 
 
-def load_bed_df(path):
-    df = pd.read_csv(path, sep="\t", header=None, comment="#", skiprows=header_rows(path))
+def first_data_column_count(path):
+    """Return the number of tab-separated columns in the first non-header row."""
+    with open(path) as fh:
+        for line in fh:
+            if is_header(line):
+                continue
+            return len(line.rstrip("\n").split("\t"))
+    raise SystemExit(f"Input bedGraph/BED has no data rows: {path}")
+
+
+def load_bed_df(path, value_cols):
+    needed = sorted({0, 1, 2, *(col - 1 for col in value_cols)})
+    ncols = first_data_column_count(path)
+    missing = [col + 1 for col in needed if col >= ncols]
+    if missing:
+        vals = " ".join(str(col) for col in missing)
+        raise SystemExit(f"column(s) {vals} not present in input ({ncols} columns): {path}")
+    df = pd.read_csv(
+        path,
+        sep="\t",
+        header=None,
+        comment="#",
+        skiprows=header_rows(path),
+        usecols=needed,
+    )
     df = df.rename(columns={0: "chr", 1: "start", 2: "end"})
     df["chr"] = df["chr"].map(normalize_chrom_name)
     df["start"] = pd.to_numeric(df["start"], errors="coerce")
@@ -334,6 +374,7 @@ def build_layout(nflank, nbody, nbox, gap=1.0, interior=1.2):
 # ------------------------------------------------------------------- main ----
 def main():
     args = parse_args()
+    validate_args(args)
     beds = args.bed
     series = getattr(args, "series", None) or []
     if not series:
@@ -348,6 +389,8 @@ def main():
                 sp["bed"] = 0
             else:
                 raise SystemExit("Each --value/--event must come after a --bed.")
+        if sp["col"] < 4:
+            raise SystemExit("--value/--event columns must be 4 or greater.")
 
     win = args.win
     nflank = args.flank_bp // win
@@ -361,10 +404,13 @@ def main():
     nbox = len(box_d)
     hw = args.box_halfwidth
 
-    bed_dfs = {}
+    bed_cols = {}
     for sp in series:
-        if sp["bed"] not in bed_dfs:
-            bed_dfs[sp["bed"]] = load_bed_df(beds[sp["bed"]])
+        bed_cols.setdefault(sp["bed"], set()).add(sp["col"])
+    bed_dfs = {
+        bed_idx: load_bed_df(beds[bed_idx], cols)
+        for bed_idx, cols in bed_cols.items()
+    }
 
     def opt(lst, i):
         return lst[i] if lst and i < len(lst) else None
@@ -398,16 +444,16 @@ def main():
 
     bfl = np.arange(nflank); bbx = np.arange(nbox); bbd = np.arange(nbody)
 
-    for _, g in genes.iterrows():
-        chrom = g["chr"]
-        gs, ge = int(g["start"]), int(g["end"])
-        pe, ns = int(g["prev_end"]), int(g["next_start"])
+    for g in genes.itertuples(index=False):
+        chrom = g.chr
+        gs, ge = int(g.start), int(g.end)
+        pe, ns = int(g.prev_end), int(g.next_start)
         # clip flanks/boxes at the midpoint to the neighbouring gene (and >=0)
         lo_left = max((pe + gs) / 2.0, 0.0) if pe >= 0 else 0.0
         hi_right = (ge + ns) / 2.0 if ns < np.iinfo(np.int64).max else np.inf
         gene_mid = (gs + ge) / 2.0
 
-        if g["strand"] == "+":
+        if g.strand == "+":
             sides = [("up", gs, "left"), ("dn", ge, "right")]
             body_edges = [("tss", gs, "right"), ("tts", ge, "left")]
         else:
@@ -521,12 +567,12 @@ def main():
     def kb(v):
         return f"{v / 1000:g}kb"
     xticks, xlabels = [], []
-    for dist in sorted(box_d, reverse=True):
-        xticks.append(L["box_left"][np.where(box_d == dist)[0][0]]); xlabels.append(kb(dist))
+    for i in range(nbox - 1, -1, -1):
+        xticks.append(L["box_left"][i]); xlabels.append(kb(box_d[i]))
     xticks += [L["flank_up"][-1], L["x_tss"], L["x_tts"], L["flank_dn"][-1]]
     xlabels += [f"-{kb(flank_extent)}", "TSS", "TTS", f"+{kb(flank_extent)}"]
-    for dist in sorted(box_d):
-        xticks.append(L["box_right"][np.where(box_d == dist)[0][0]]); xlabels.append(kb(dist))
+    for i, dist in enumerate(box_d):
+        xticks.append(L["box_right"][i]); xlabels.append(kb(dist))
     ax_c.set_xticks(xticks); ax_c.set_xticklabels(xlabels, fontsize=8, rotation=40, ha="right")
     box_note = (f"; far-field boxes at {' / '.join(kb(d) for d in box_d)}" if nbox else "")
     ax_c.set_xlabel("Distance from gene edge: 5' / upstream (left), 3' / downstream (right). "
