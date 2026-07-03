@@ -149,3 +149,8 @@ Run `python flank_metaplot.py --help` for the full, authoritative list.
   so a gene's profile never reaches into its neighbour.
 - The per-gene value is averaged across genes with data in each slot; boxes show
   that mean ± 1 SE and the bottom panel shows the contributing-gene count.
+
+## Credits
+
+This project was built with [Claude](https://www.claude.com/product/claude-code)
+and [Codex](https://openai.com/codex/).

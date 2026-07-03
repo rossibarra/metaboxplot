@@ -44,10 +44,57 @@ import numpy as np
 import pandas as pd
 from matplotlib.patches import Patch, Rectangle
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import metaplot as mp  # noqa: E402
-
 DEFAULT_COLORS = ["#1f77b4", "#d62728"]
+
+WARNED_CHROM_RENAMES = set()
+
+
+def normalize_chrom_name(value):
+    if pd.isna(value):
+        return value
+    text = str(value).strip()
+    if text.lower().startswith("chr"):
+        normalized = f"chr{text[3:]}"
+    else:
+        normalized = text
+    if normalized != text and text not in WARNED_CHROM_RENAMES:
+        print(
+            f"Warning: normalized chromosome name '{text}' -> '{normalized}'",
+            file=sys.stderr,
+        )
+        WARNED_CHROM_RENAMES.add(text)
+    return normalized
+
+
+def load_genes(path):
+    genes = pd.read_csv(
+        path,
+        sep="\t",
+        header=None,
+        comment="#",
+        names=[
+            "chr",
+            "source",
+            "feature",
+            "start",
+            "end",
+            "score",
+            "strand",
+            "phase",
+            "attributes",
+        ],
+        usecols=list(range(9)),
+    )
+    genes = genes[genes["feature"] == "gene"].copy()
+    genes["chr"] = genes["chr"].map(normalize_chrom_name)
+    genes["start"] = pd.to_numeric(genes["start"], errors="coerce") - 1
+    genes["end"] = pd.to_numeric(genes["end"], errors="coerce")
+    genes = genes.dropna(subset=["chr", "start", "end", "strand"]).copy()
+    genes["start"] = genes["start"].astype(np.int64)
+    genes["end"] = genes["end"].astype(np.int64)
+    genes["strand"] = genes["strand"].astype(str)
+    genes = genes[genes["strand"].isin(["+", "-"])].copy()
+    return genes
 
 
 class SeriesAction(argparse.Action):
@@ -144,7 +191,7 @@ def header_rows(path):
 def load_bed_df(path):
     df = pd.read_csv(path, sep="\t", header=None, comment="#", skiprows=header_rows(path))
     df = df.rename(columns={0: "chr", 1: "start", 2: "end"})
-    df["chr"] = df["chr"].map(mp.normalize_chrom_name)
+    df["chr"] = df["chr"].map(normalize_chrom_name)
     df["start"] = pd.to_numeric(df["start"], errors="coerce")
     df["end"] = pd.to_numeric(df["end"], errors="coerce")
     return df
@@ -337,7 +384,7 @@ def main():
         )
         tracks.append(tr)
 
-    genes = mp.load_genes(args.gff).sort_values(["chr", "start"], kind="mergesort").reset_index(drop=True)
+    genes = load_genes(args.gff).sort_values(["chr", "start"], kind="mergesort").reset_index(drop=True)
     genes["prev_end"] = np.int64(-1)
     genes["next_start"] = np.iinfo(np.int64).max
     for _, idx in genes.groupby("chr", sort=False).groups.items():
