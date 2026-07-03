@@ -274,3 +274,75 @@ def test_main_reports_helpful_errors_for_invalid_geometry_options(
 
     with pytest.raises(SystemExit, match=re.compile(message, re.IGNORECASE)):
         fm.main()
+
+
+def _overlapping_inputs(tmp_path):
+    """One gene whose flanks overlap a bed track, so a run produces output."""
+    gff = tmp_path / "genes.gff3"
+    gff.write_text("chr1\t.\tgene\t101\t200\t.\t+\t.\tID=g1\n")
+    bed = tmp_path / "signal.bedGraph"
+    bed.write_text("chr1\t0\t300\t1\n")
+    return gff, bed
+
+
+def _argv(gff, bed, out, *extra):
+    return ["flank_metaplot.py", "--gff", str(gff), "--bed", str(bed),
+            "--value", "4", "--output", str(out), *extra]
+
+
+def test_main_dedupes_duplicate_box_dists_with_warning(tmp_path, monkeypatch, capsys):
+    gff, bed = _overlapping_inputs(tmp_path)
+    monkeypatch.setattr(sys, "argv", _argv(gff, bed, tmp_path / "out.pdf",
+                                           "--box-dists", "1000", "1000", "2000"))
+
+    assert fm.main() == 0
+    assert "duplicate --box-dists" in capsys.readouterr().err
+
+
+def test_main_warns_about_unused_bed(tmp_path, monkeypatch, capsys):
+    gff, bed = _overlapping_inputs(tmp_path)
+    other = tmp_path / "other.bedGraph"
+    other.write_text("chr1\t0\t300\t9\n")
+    monkeypatch.setattr(sys, "argv", _argv(gff, bed, tmp_path / "out.pdf",
+                                           "--bed", str(other)))
+
+    assert fm.main() == 0
+    err = capsys.readouterr().err
+    assert "no --value/--event column ignored" in err and "other.bedGraph" in err
+
+
+def test_main_errors_on_chromosome_name_mismatch(tmp_path, monkeypatch):
+    gff = tmp_path / "genes.gff3"
+    gff.write_text("10\t.\tgene\t101\t200\t.\t+\t.\tID=g1\n")   # Ensembl-style
+    bed = tmp_path / "signal.bedGraph"
+    bed.write_text("chr10\t0\t300\t1\n")                        # UCSC-style
+    monkeypatch.setattr(sys, "argv", _argv(gff, bed, tmp_path / "out.pdf"))
+
+    with pytest.raises(SystemExit, match=r"No genes share a chromosome"):
+        fm.main()
+
+
+def test_main_errors_when_no_window_has_coverage(tmp_path, monkeypatch):
+    gff = tmp_path / "genes.gff3"
+    gff.write_text("chr1\t.\tgene\t100001\t100100\t.\t+\t.\tID=g1\n")
+    bed = tmp_path / "signal.bedGraph"
+    bed.write_text("chr1\t0\t50\t1\n")                          # same chrom, far away
+    # "--box-dists" with no values disables far boxes, so nothing reaches the bed.
+    monkeypatch.setattr(sys, "argv", _argv(gff, bed, tmp_path / "out.pdf", "--box-dists"))
+
+    with pytest.raises(SystemExit, match=r"No windows had any coverage"):
+        fm.main()
+
+
+def test_stats_uses_sample_standard_error():
+    acc = fm.zarr(2)
+    for x in (2.0, 4.0, 6.0):                                   # sample sd 2, SE=2/sqrt(3)
+        fm.acc_add(acc, np.array([0]), np.array([x]), np.array([True]))
+    fm.acc_add(acc, np.array([1]), np.array([5.0]), np.array([True]))  # single obs
+
+    m, se, n = fm.stats(acc)
+
+    np.testing.assert_allclose(m[0], 4.0)
+    np.testing.assert_allclose(se[0], 2.0 / np.sqrt(3))
+    assert n[0] == 3
+    assert n[1] == 1 and np.isnan(se[1])                        # n<2 -> undefined SE

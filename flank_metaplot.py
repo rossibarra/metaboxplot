@@ -43,6 +43,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.patches import Patch, Rectangle
+from matplotlib.ticker import MaxNLocator
 
 DEFAULT_COLORS = ["#1f77b4", "#d62728"]
 
@@ -341,8 +342,11 @@ def acc_add(acc, idx, val, ok):
 def stats(acc):
     s, q, n = acc["s"], acc["q"], acc["n"]
     m = np.divide(s, n, out=np.full_like(s, np.nan), where=n > 0)
-    v = np.maximum(np.divide(q, n, out=np.zeros_like(s), where=n > 0) - np.nan_to_num(m) ** 2, 0)
-    se = np.full_like(s, np.nan); se[n > 0] = np.sqrt(v[n > 0] / n[n > 0])
+    # sum of squared deviations, then sample SE = sqrt(var_(ddof=1) / n);
+    # undefined (NaN) for n < 2 since a single observation has no spread.
+    ss = np.maximum(q - n * np.nan_to_num(m) ** 2, 0.0)
+    se = np.full_like(s, np.nan); mult = n > 1
+    se[mult] = np.sqrt(ss[mult] / (n[mult] - 1) / n[mult])
     return m, se, n
 
 
@@ -361,19 +365,19 @@ def build_layout(nflank, nbody, nbox, gap=1.0, interior=1.2):
     for b in range(nflank - 1, -1, -1):
         flank_up[b] = c; c += 1
     x_tss = c - 0.5
-    body_tss = np.arange(c, c + nbody); c += nbody
+    body_tss = c + np.arange(nbody); c += nbody
     interior_lo = c - 0.5; c += interior
     interior_hi = c - 0.5
     body_tts = np.zeros(nbody)     # bin 0 = nearest TTS (rightmost)
     for b in range(nbody - 1, -1, -1):
         body_tts[b] = c; c += 1
     x_tts = c - 0.5
-    flank_dn = np.arange(c, c + nflank); c += nflank
+    flank_dn = c + np.arange(nflank); c += nflank
     if nbox:
         sep_right = c - 0.5 + gap / 2; c += gap
     else:
         sep_right = None
-    box_right = np.arange(c, c + nbox); c += nbox  # index 0 = nearest distance
+    box_right = c + np.arange(nbox); c += nbox  # index 0 = nearest distance
     return dict(box_left=box_left, flank_up=flank_up, x_tss=x_tss,
                 body_tss=body_tss, interior=(interior_lo, interior_hi),
                 body_tts=body_tts, x_tts=x_tts, flank_dn=flank_dn,
@@ -410,13 +414,19 @@ def main():
               f"flanks profiled to {flank_extent} bp (last {args.flank_bp % win} bp dropped).",
               file=sys.stderr)
     nbody = args.body_bins
-    box_d = np.array(sorted(args.box_dists), dtype=np.float64)
+    box_d = np.array(sorted(set(args.box_dists)), dtype=np.float64)
+    if len(box_d) != len(args.box_dists):
+        print("Warning: duplicate --box-dists values ignored.", file=sys.stderr)
     nbox = len(box_d)
     hw = args.box_halfwidth
 
     bed_cols = {}
     for sp in series:
         bed_cols.setdefault(sp["bed"], set()).add(sp["col"])
+    unused = [beds[i] for i in range(len(beds)) if i not in bed_cols]
+    if unused:
+        print(f"Warning: --bed file(s) with no --value/--event column ignored: "
+              f"{', '.join(unused)}", file=sys.stderr)
     bed_dfs = {
         bed_idx: load_bed_df(beds[bed_idx], cols)
         for bed_idx, cols in bed_cols.items()
@@ -441,6 +451,22 @@ def main():
         tracks.append(tr)
 
     genes = load_genes(args.gff).sort_values(["chr", "start"], kind="mergesort").reset_index(drop=True)
+
+    # Catch the common footgun of mismatched chromosome naming (e.g. '10' vs
+    # 'chr10'), which otherwise yields a silent, entirely empty plot.
+    gene_chroms = set(genes["chr"].unique())
+    disjoint = [t for t in tracks if gene_chroms.isdisjoint(t["chroms"])]
+    if len(disjoint) == len(tracks):
+        g_ex = ", ".join(sorted(gene_chroms)[:5]) or "(none)"
+        b_ex = ", ".join(sorted({c for t in tracks for c in t["chroms"]})[:5]) or "(none)"
+        raise SystemExit(
+            "No genes share a chromosome with any bedGraph track — nothing to plot. "
+            f"Gene chromosomes (e.g. {g_ex}) do not match bedGraph chromosomes "
+            f"(e.g. {b_ex}); check that both use the same naming (e.g. '10' vs 'chr10').")
+    for t in disjoint:
+        print(f"Warning: no genes on any chromosome present in track '{t['label']}'.",
+              file=sys.stderr)
+
     genes["prev_end"] = np.int64(-1)
     genes["next_start"] = np.iinfo(np.int64).max
     for _, idx in genes.groupby("chr", sort=False).groups.items():
@@ -503,6 +529,15 @@ def main():
                 val, ok = region_vals(cd, lo, hi, t)
                 acc_add(t["bd"][edge_name], bbd, val, ok)
 
+    # Backstop: chromosomes matched but no window ever had coverage (e.g. genes
+    # and bedGraph are on the same chroms but never overlap) -> still empty.
+    contributed = sum(int(acc["n"].sum()) for t in tracks
+                      for grp in (t["fl"], t["bd"], t["bx"]) for acc in grp.values())
+    if contributed == 0:
+        raise SystemExit(
+            "No windows had any coverage — nothing to plot. Genes and bedGraph "
+            "share chromosomes but their intervals never overlap; check coordinates.")
+
     # ---------------------------------------------------------- plotting ----
     L = build_layout(nflank, nbody, nbox)
     fig, (ax, ax_c) = plt.subplots(2, 1, figsize=(11, 5.6), sharex=True,
@@ -560,8 +595,7 @@ def main():
     t0 = tracks[0]
 
     def bar(xs, acc):
-        _, _, n = stats(acc)
-        ax_c.bar(xs, n, width=0.85, color=args.gene_color)
+        ax_c.bar(xs, acc["n"], width=0.85, color=args.gene_color)
     if nbox:
         bar(L["box_left"], t0["bx"]["up"])
         bar(L["box_right"], t0["bx"]["dn"])
@@ -570,7 +604,7 @@ def main():
     bar(L["body_tss"], t0["bd"]["tss"])
     bar(L["body_tts"], t0["bd"]["tts"])
     ax_c.set_ylabel("Genes\ncontributing", fontsize=8)
-    ax_c.yaxis.set_major_locator(plt.matplotlib.ticker.MaxNLocator(nbins=5, integer=True))
+    ax_c.yaxis.set_major_locator(MaxNLocator(nbins=5, integer=True))
     ax_c.tick_params(axis="y", labelsize=7)
 
     # ticks
