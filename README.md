@@ -150,6 +150,13 @@ Run `python flank_metaplot.py --help` for the full, authoritative list.
 - The per-gene value is averaged across genes with data in each slot; boxes show
   that mean ± 1 SE and the bottom panel shows the contributing-gene count.
 
+## Citation
+
+If you use this, please cite:
+
+Ross-Ibarra J. 2026. Metaboxplot: transparent plotting of data around genes.
+[![DOI](https://zenodo.org/badge/1288649685.svg)](https://doi.org/10.5281/zenodo.21180779)
+
 ## Credits
 
 This project was built with [Claude](https://www.claude.com/product/claude-code)
