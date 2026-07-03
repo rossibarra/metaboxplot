@@ -178,8 +178,8 @@ def validate_args(args):
         raise SystemExit("--flank-bp must be at least --win so each flank has at least one bin.")
     if args.body_bins <= 0:
         raise SystemExit("--body-bins must be greater than 0.")
-    if args.box_halfwidth < 0:
-        raise SystemExit("--box-halfwidth must be 0 or greater.")
+    if args.box_halfwidth <= 0:
+        raise SystemExit("--box-halfwidth must be greater than 0.")
     bad_box_dists = [d for d in args.box_dists if d < 0]
     if bad_box_dists:
         vals = " ".join(str(d) for d in bad_box_dists)
@@ -248,8 +248,6 @@ def build_track(df, col, kind):
                 value            for an EVENT track (density = value / length).
     """
     c = col - 1
-    if c not in df.columns:
-        raise SystemExit(f"column {col} not present in input ({len(df.columns)} columns)")
     sub = df[["chr", "start", "end", c]].copy()
     sub.columns = ["chr", "start", "end", "v"]
     sub["v"] = pd.to_numeric(sub["v"], errors="coerce")

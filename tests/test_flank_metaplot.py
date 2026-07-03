@@ -235,6 +235,7 @@ def test_main_accumulates_plus_and_minus_strands_in_five_prime_to_three_prime_or
         ("--flank-bp", "499", "at least --win"),
         ("--body-bins", "-1", "body"),
         ("--box-halfwidth", "-1", "box"),
+        ("--box-halfwidth", "0", "box-halfwidth"),
         ("--box-dists", "-1", "box-dists"),
     ],
 )
