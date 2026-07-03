@@ -173,6 +173,15 @@ def build_track(df, col, kind):
     for chrom, gsub in sub.groupby("chr", sort=False):
         gsub = gsub.sort_values("start", kind="mergesort")
         s = gsub["start"].to_numpy(np.int64); e = gsub["end"].to_numpy(np.int64)
+        # The overlap integration assumes a proper (non-overlapping) bedGraph;
+        # overlapping ranges would silently give wrong per-window values.
+        bad = np.nonzero(s[1:] < e[:-1])[0]
+        if bad.size:
+            i = bad[0]
+            raise SystemExit(
+                f"overlapping ranges in column {col} on {chrom}: "
+                f"[{s[i]},{e[i]}) overlaps [{s[i+1]},{e[i+1]}). Input must be a "
+                f"non-overlapping bedGraph; flatten overlapping intervals first.")
         length = (e - s).astype(np.float64)
         v = gsub["v"].to_numpy(np.float64)
         val_integ = v * length if kind == "value" else v.copy()
