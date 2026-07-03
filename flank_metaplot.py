@@ -248,6 +248,8 @@ def build_track(df, col, kind):
                 value            for an EVENT track (density = value / length).
     """
     c = col - 1
+    if c not in df.columns:
+        raise SystemExit(f"column {col} not present in track data")
     sub = df[["chr", "start", "end", c]].copy()
     sub.columns = ["chr", "start", "end", "v"]
     sub["v"] = pd.to_numeric(sub["v"], errors="coerce")
